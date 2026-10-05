@@ -1,0 +1,196 @@
+
+# WEEK 3: STATISTICAL ANALYSIS AND PREDICTIVE MODELING USING R
+# Dataset: Titanic Dataset
+# Model: Logistic Regression (Classification)
+
+# Install once if required:
+# install.packages(c("ggplot2", "dplyr"))
+
+library(ggplot2)
+library(dplyr)
+
+# 1. Load and prepare data
+
+data <- read.csv("titanic.csv", stringsAsFactors = FALSE)
+
+# Keep variables useful for prediction
+model_data <- data[, c("Survived", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare")]
+
+# Handle missing Age using median
+model_data$Age[is.na(model_data$Age)] <-
+  median(model_data$Age, na.rm = TRUE)
+
+# Convert categorical variables to factors
+model_data$Survived <- factor(model_data$Survived,
+                              levels = c(0, 1),
+                              labels = c("No", "Yes"))
+model_data$Pclass <- factor(model_data$Pclass)
+model_data$Sex <- factor(model_data$Sex)
+
+# Remove remaining incomplete records if any
+model_data <- na.omit(model_data)
+
+# Check cleaned data
+str(model_data)
+summary(model_data)
+
+# 2. Exploratory statistical analysis
+
+# Descriptive statistics
+summary(model_data)
+
+# Hypothesis Test 1: Gender and survival
+# H0: Gender and survival are independent.
+# H1: Gender and survival are associated.
+gender_table <- table(model_data$Sex, model_data$Survived)
+gender_chisq <- chisq.test(gender_table)
+gender_chisq
+
+# Hypothesis Test 2: Age difference between survivors and non-survivors
+# H0: Mean age is equal in both groups.
+# H1: Mean age differs between groups.
+age_ttest <- t.test(Age ~ Survived, data = model_data)
+age_ttest
+
+# Normality check for Age
+shapiro_age <- shapiro.test(model_data$Age)
+shapiro_age
+
+# Correlation among numerical predictors
+numeric_vars <- model_data[, c("Age", "SibSp", "Parch", "Fare")]
+correlation_matrix <- cor(numeric_vars, use = "complete.obs")
+correlation_matrix
+
+# 3. Train/Test split
+
+set.seed(123)
+
+n <- nrow(model_data)
+train_index <- sample(seq_len(n), size = floor(0.80 * n))
+
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+# 4. Logistic regression model
+
+model <- glm(
+  Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare,
+  data = train_data,
+  family = binomial
+)
+
+summary(model)
+
+# Odds ratios
+odds_ratios <- exp(coef(model))
+odds_ratios
+
+# 95% confidence intervals
+confint_model <- exp(confint(model))
+confint_model
+
+# 5. Test-set prediction
+
+probabilities <- predict(model, newdata = test_data, type = "response")
+
+predicted <- ifelse(probabilities >= 0.50, "Yes", "No")
+predicted <- factor(predicted, levels = c("No", "Yes"))
+
+actual <- test_data$Survived
+
+# Confusion matrix
+confusion_matrix <- table(
+  Predicted = predicted,
+  Actual = actual
+)
+confusion_matrix
+
+# Performance metrics
+TP <- sum(predicted == "Yes" & actual == "Yes")
+TN <- sum(predicted == "No" & actual == "No")
+FP <- sum(predicted == "Yes" & actual == "No")
+FN <- sum(predicted == "No" & actual == "Yes")
+
+accuracy <- (TP + TN) / (TP + TN + FP + FN)
+precision <- ifelse((TP + FP) == 0, NA, TP / (TP + FP))
+recall <- ifelse((TP + FN) == 0, NA, TP / (TP + FN))
+specificity <- ifelse((TN + FP) == 0, NA, TN / (TN + FP))
+f1_score <- ifelse(is.na(precision) || is.na(recall) ||
+                     (precision + recall) == 0,
+                   NA,
+                   2 * precision * recall / (precision + recall))
+
+metrics <- data.frame(
+  Metric = c("Accuracy", "Precision", "Recall", "Specificity", "F1 Score"),
+  Value = c(accuracy, precision, recall, specificity, f1_score)
+)
+metrics
+
+# 6. 5-fold cross-validation implemented in base R
+
+set.seed(123)
+K <- 5
+fold_id <- sample(rep(1:K, length.out = nrow(model_data)))
+
+cv_accuracy <- numeric(K)
+
+for (k in 1:K) {
+  cv_train <- model_data[fold_id != k, ]
+  cv_test <- model_data[fold_id == k, ]
+
+  cv_model <- glm(
+    Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare,
+    data = cv_train,
+    family = binomial
+  )
+
+  cv_prob <- predict(cv_model, newdata = cv_test, type = "response")
+  cv_pred <- ifelse(cv_prob >= 0.50, "Yes", "No")
+
+  cv_accuracy[k] <- mean(cv_pred == as.character(cv_test$Survived))
+}
+
+cv_results <- data.frame(
+  Fold = 1:K,
+  Accuracy = cv_accuracy
+)
+
+cv_results
+mean_cv_accuracy <- mean(cv_accuracy)
+mean_cv_accuracy
+
+# 7. Model diagnostics
+
+# Residual diagnostics
+par(mfrow = c(2, 2))
+plot(model)
+par(mfrow = c(1, 1))
+
+# Deviance residuals
+plot(
+  fitted(model),
+  residuals(model, type = "deviance"),
+  xlab = "Fitted Probability",
+  ylab = "Deviance Residuals",
+  main = "Deviance Residuals vs Fitted"
+)
+abline(h = 0, lty = 2)
+
+# 8. Save outputs
+
+write.csv(metrics, "outputs/week3_model_metrics.csv", row.names = FALSE)
+write.csv(cv_results, "outputs/week3_cross_validation.csv", row.names = FALSE)
+write.csv(as.data.frame(correlation_matrix),
+          "outputs/week3_correlation_matrix.csv")
+
+png("outputs/week3_confusion_matrix.png", width = 900, height = 700)
+plot.new()
+text(0.5, 0.75, "Confusion Matrix", cex = 1.6)
+text(0.5, 0.60, paste(capture.output(confusion_matrix),
+                       collapse = "\n"), family = "mono", cex = 1.1)
+text(0.5, 0.35,
+     paste("Test Accuracy:", round(accuracy, 3)),
+     cex = 1.2)
+dev.off()
+
+# End of Week 3
