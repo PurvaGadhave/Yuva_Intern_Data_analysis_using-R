@@ -1,0 +1,177 @@
+# ============================================================
+# WEEK 4: COMPREHENSIVE DATA ANALYSIS REPORTING AND PRESENTATION
+# Integrates Weeks 1-3 using the Titanic Dataset
+# ============================================================
+
+library(ggplot2)
+library(dplyr)
+
+# ------------------------------------------------------------
+# 1. Load dataset
+# ------------------------------------------------------------
+data <- read.csv("titanic.csv", stringsAsFactors = FALSE)
+
+# ------------------------------------------------------------
+# 2. Data preparation / cleaning
+# ------------------------------------------------------------
+data$Age[is.na(data$Age)] <- median(data$Age, na.rm = TRUE)
+
+data$Embarked[is.na(data$Embarked)] <- 
+  names(sort(table(data$Embarked), decreasing = TRUE))[1]
+
+data <- data[!duplicated(data), ]
+
+data$Pclass <- factor(
+  data$Pclass,
+  levels = c(1, 2, 3),
+  labels = c("1st Class", "2nd Class", "3rd Class")
+)
+
+data$Sex <- factor(data$Sex)
+data$Embarked <- factor(data$Embarked)
+
+# ------------------------------------------------------------
+# 3. Week 2 visualizations
+# ------------------------------------------------------------
+
+p1 <- ggplot(data, aes(x = Sex, fill = factor(Survived))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Survival by Gender",
+       x = "Gender", y = "Number of Passengers",
+       fill = "Survived") +
+  theme_minimal()
+
+p2 <- ggplot(data, aes(x = Pclass, fill = factor(Survived))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Survival by Passenger Class",
+       x = "Passenger Class", y = "Number of Passengers",
+       fill = "Survived") +
+  theme_minimal()
+
+p3 <- ggplot(data, aes(x = Age)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  labs(title = "Age Distribution",
+       x = "Age", y = "Frequency") +
+  theme_minimal()
+
+p4 <- ggplot(data, aes(x = Pclass, y = Fare)) +
+  geom_boxplot(na.rm = TRUE) +
+  labs(title = "Fare by Passenger Class",
+       x = "Passenger Class", y = "Fare") +
+  theme_minimal()
+
+p5 <- ggplot(data, aes(x = Age, y = Fare, color = Sex)) +
+  geom_point(alpha = 0.6, na.rm = TRUE) +
+  labs(title = "Age vs Fare",
+       x = "Age", y = "Fare", color = "Gender") +
+  theme_minimal()
+
+ggsave("outputs/week4_survival_gender.png", p1,
+       width = 8, height = 5, dpi = 300)
+ggsave("outputs/week4_survival_class.png", p2,
+       width = 8, height = 5, dpi = 300)
+ggsave("outputs/week4_age_distribution.png", p3,
+       width = 8, height = 5, dpi = 300)
+ggsave("outputs/week4_fare_boxplot.png", p4,
+       width = 8, height = 5, dpi = 300)
+ggsave("outputs/week4_age_fare_scatter.png", p5,
+       width = 8, height = 5, dpi = 300)
+
+# ------------------------------------------------------------
+# 4. Statistical analysis
+# ------------------------------------------------------------
+
+gender_test <- chisq.test(table(data$Sex, data$Survived))
+age_test <- t.test(Age ~ Survived, data = data)
+age_normality <- shapiro.test(data$Age)
+
+numeric_data <- data[, c("Age", "SibSp", "Parch", "Fare")]
+correlation <- cor(numeric_data, use = "complete.obs")
+
+gender_test
+age_test
+age_normality
+correlation
+
+# ------------------------------------------------------------
+# 5. Predictive model: Logistic Regression
+# ------------------------------------------------------------
+
+model_data <- data[, c(
+  "Survived", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare"
+)]
+
+model_data$Survived <- factor(
+  model_data$Survived,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+model_data <- na.omit(model_data)
+
+set.seed(123)
+train_index <- sample(
+  seq_len(nrow(model_data)),
+  size = floor(0.80 * nrow(model_data))
+)
+
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+model <- glm(
+  Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare,
+  data = train_data,
+  family = binomial
+)
+
+summary(model)
+
+# ------------------------------------------------------------
+# 6. Model evaluation
+# ------------------------------------------------------------
+
+probabilities <- predict(model, newdata = test_data, type = "response")
+
+predicted <- ifelse(probabilities >= 0.50, "Yes", "No")
+predicted <- factor(predicted, levels = c("No", "Yes"))
+
+actual <- test_data$Survived
+
+confusion_matrix <- table(
+  Predicted = predicted,
+  Actual = actual
+)
+
+TP <- sum(predicted == "Yes" & actual == "Yes")
+TN <- sum(predicted == "No" & actual == "No")
+FP <- sum(predicted == "Yes" & actual == "No")
+FN <- sum(predicted == "No" & actual == "Yes")
+
+accuracy <- (TP + TN) / (TP + TN + FP + FN)
+precision <- TP / (TP + FP)
+recall <- TP / (TP + FN)
+specificity <- TN / (TN + FP)
+
+model_metrics <- data.frame(
+  Metric = c("Accuracy", "Precision", "Recall", "Specificity"),
+  Value = c(accuracy, precision, recall, specificity)
+)
+
+confusion_matrix
+model_metrics
+
+write.csv(model_metrics,
+          "outputs/week4_model_metrics.csv",
+          row.names = FALSE)
+
+# ------------------------------------------------------------
+# 7. Final report values
+# ------------------------------------------------------------
+
+cat("Rows:", nrow(data), "\n")
+cat("Columns:", ncol(data), "\n")
+cat("Test Accuracy:", round(accuracy, 4), "\n")
+cat("Chi-square p-value:", gender_test$p.value, "\n")
+cat("Age t-test p-value:", age_test$p.value, "\n")
+
+# End of Week 4
